@@ -284,25 +284,37 @@ export default function Home({ events, webhooks }) {
 }
 
 export async function getStaticProps() {
-	const [eventCount, webhookCount] = await Promise.all([
-		prisma.event.count({
-			select: {
-				_all: true,
-			},
-		}),
-		prisma.webhook.count({
-			select: {
-				_all: true,
-			},
-		}),
-	]);
-	await prisma.$disconnect();
+	try {
+		const [eventCount, webhookCount] = await Promise.all([
+			prisma.event.count({
+				select: {
+					_all: true,
+				},
+			}),
+			prisma.webhook.count({
+				select: {
+					_all: true,
+				},
+			}),
+		]);
 
-	return {
-		revalidate: 60,
-		props: {
-			events: eventCount?._all ?? 0,
-			webhooks: webhookCount?._all ?? 0,
-		},
-	};
+		return {
+			revalidate: 60,
+			props: {
+				events: eventCount?._all ?? 0,
+				webhooks: webhookCount?._all ?? 0,
+			},
+		};
+	} catch {
+		// Build/CI often has no DB or unmigrated schema; ISR fills real counts after deploy.
+		return {
+			revalidate: 60,
+			props: {
+				events: 0,
+				webhooks: 0,
+			},
+		};
+	} finally {
+		await prisma.$disconnect();
+	}
 }
