@@ -4,6 +4,34 @@ import prisma from '../../../lib/database';
 import { createLegacyMessage, createMessage } from '../../../lib/message';
 import { getPlatform } from '../../../lib/parser';
 
+/** Browsers issue GET; POST is what Sentry uses. Avoid a bare 404 when the route exists. */
+const getWebhookInfo = async (
+  request: NextApiRequest,
+  response: NextApiResponse
+) => {
+  let { key } = request.query;
+  if (Array.isArray(key)) {
+    key = key[0];
+  }
+  if (key == null || typeof key !== 'string') {
+    return response.status(400).json({ error: 'Missing webhook key' });
+  }
+
+  const webhook = await prisma.webhook.findUnique({ where: { key } });
+  if (!webhook) {
+    return response.status(404).json({
+      error: 'Unknown webhook key',
+      hint: 'Create a webhook on the site or use a key that exists in this app’s database.',
+    });
+  }
+
+  return response.status(200).json({
+    message:
+      'This endpoint only accepts POST with a JSON body (Sentry alert payloads). Paste this URL into Sentry’s webhook field, do not expect a page when opening it here.',
+    key,
+  });
+};
+
 const handler = async (request: NextApiRequest, response: NextApiResponse) => {
   let message;
 
@@ -154,4 +182,4 @@ const handler = async (request: NextApiRequest, response: NextApiResponse) => {
   }
 };
 
-export default nextConnect().post(handler);
+export default nextConnect().get(getWebhookInfo).post(handler);

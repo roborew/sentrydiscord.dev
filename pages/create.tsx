@@ -20,6 +20,10 @@ function ExternalLink({
   );
 }
 
+const publicAppOrigin = (
+  process.env.NEXT_PUBLIC_APP_URL ?? 'https://sentrydiscord.dev'
+).replace(/\/$/, '');
+
 export default function Create() {
   const [key, setKey] = useState(null);
   const [value, setValue] = useState('');
@@ -30,7 +34,7 @@ export default function Create() {
     setValue(event.currentTarget.value);
   };
 
-  const getWebhookURL = () => `https://sentrydiscord.dev/api/webhooks/${key}`;
+  const getWebhookURL = () => `${publicAppOrigin}/api/webhooks/${key}`;
 
   const onClick = async (event) => {
     event.preventDefault();

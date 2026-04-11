@@ -117,7 +117,7 @@ export function createLegacyMessage(event) {
 	const embed = new EmbedBuilder()
 		.setColor(getColor(legacyParser.getLevel(event)))
 		.setAuthor({
-			name: event.project_name,
+			name: event.project_name ?? "Sentry Event",
 			iconURL: "https://sentrydiscord.dev/icons/sentry.png",
 		})
 		.setFooter({
