@@ -32,14 +32,14 @@ COPY . .
 RUN npm run build
 
 # -----------------------------------------------------------------------------
-# Production runner (curl for Coolify/health checks)
+# Production runner (curl + wget for Coolify/orchestrator HTTP health checks)
 # -----------------------------------------------------------------------------
 FROM node:20-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends curl openssl ca-certificates \
+  && apt-get install -y --no-install-recommends curl wget openssl ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && groupadd --system --gid 1001 nodejs \
   && useradd --system --uid 1001 --gid nodejs nextjs
@@ -52,5 +52,5 @@ USER nextjs
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
-# Coolify: e.g. curl -f http://127.0.0.1:3000/api/healthz
+# Coolify: e.g. curl -f or wget -qO- http://127.0.0.1:3000/api/healthz
 CMD ["npm", "run", "start"]
