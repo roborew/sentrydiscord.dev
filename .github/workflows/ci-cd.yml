@@ -1,0 +1,123 @@
+# CI/CD: basic checks, Docker build/push to DigitalOcean Container Registry, Coolify deploy.
+#
+# GitHub configuration (repository)
+# ---------------------------------------------------------------------------
+# Required secrets
+#   DIGITALOCEAN_ACCESS_TOKEN  DO API token (doctl registry login)
+#   DO_REGISTRY_NAME           DO Container Registry name (path segment, e.g. my-registry)
+#   COOLIFY_TOKEN              Bearer token for Coolify deploy webhook
+#   MAIN_DEPLOY_WEBHOOK        Production Coolify app deploy webhook URL (GET)
+#
+# Optional repository variable
+#   DO_IMAGE_NAME              Image name in the registry (default: sentrydiscord-dev)
+#
+# Runtime environment (set in Coolify, not in GitHub)
+# ---------------------------------------------------------------------------
+#   DATABASE_URL                PostgreSQL URL for Prisma
+#   NEXT_PUBLIC_APP_URL         Public site URL (optional; falls back in app code)
+#
+name: CI / CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: registry.digitalocean.com
+  DO_REGISTRY: ${{ secrets.DO_REGISTRY_NAME }}
+  IMAGE_NAME: ${{ vars.DO_IMAGE_NAME || 'sentrydiscord-dev' }}
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Native checks (no Docker) — also runs on pull requests
+  # -------------------------------------------------------------------------
+  checks:
+    name: Lint & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+        # DATABASE_URL is not required for prisma generate / next build; set if your setup needs it
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder?schema=public"
+
+  # -------------------------------------------------------------------------
+  # Build & push image — only on main (not PRs)
+  # -------------------------------------------------------------------------
+  publish:
+    name: Build & push to DOCR
+    runs-on: ubuntu-latest
+    needs: checks
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Log in to DigitalOcean Container Registry
+        run: doctl registry login --expiry-seconds 1200
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          target: runner
+          push: true
+          build-args: |
+            NODE_ENV=production
+            DATABASE_URL=postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder?schema=public
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.DO_REGISTRY }}/${{ env.IMAGE_NAME }}:main
+            ${{ env.REGISTRY }}/${{ env.DO_REGISTRY }}/${{ env.IMAGE_NAME }}:main-${{ steps.sha.outputs.short }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # -------------------------------------------------------------------------
+  # Deploy via Coolify
+  # -------------------------------------------------------------------------
+  deploy:
+    name: Deploy (Coolify)
+    runs-on: ubuntu-latest
+    needs: publish
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Trigger production deploy
+        env:
+          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          MAIN_DEPLOY_WEBHOOK: ${{ secrets.MAIN_DEPLOY_WEBHOOK }}
+        run: |
+          set -euo pipefail
+          curl --silent --show-error --fail --request GET "$MAIN_DEPLOY_WEBHOOK" \
+            --header "Authorization: Bearer ${COOLIFY_TOKEN}"
